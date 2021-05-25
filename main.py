@@ -17,9 +17,9 @@ class Item(BaseModel):
 
 @app.get("/")
 async def read_root():
-    return {"Hello": "World"}
+    return {"message": "Welcome from the API"}
 
-@app.post("/")
+@app.post("/get")
 async def get_pa(file: UploadFile = File(...)): # get pression artérielle
     image = np.array(Image.open(file.file))
     width, height, _ = image.shape
