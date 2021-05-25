@@ -1,7 +1,8 @@
 fastapi
+uvloop
+httptools
 numpy
 opencv-python
 pillow
 python-multipart
 uvicorn
-httptools
