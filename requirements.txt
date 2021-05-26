@@ -2,3 +2,6 @@ fastapi
 uvloop
 httptools
 uvicorn
+numpy
+pillow
+python-multipart
