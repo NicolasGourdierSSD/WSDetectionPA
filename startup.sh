@@ -5,4 +5,4 @@ apt-get install -y libgl1-mesa-dev
 apt-get install ffmpeg libsm6 libxext6  -y
 apt-get install libglib2.0-0
 echo "---------- démarrage ----------"
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app
+gunicorn --timeout=800 -w 4 -k uvicorn.workers.UvicornWorker main:app
