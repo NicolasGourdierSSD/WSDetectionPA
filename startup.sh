@@ -1,3 +1,4 @@
+EXPOSE 2222 80
 apt-get update
 apt install libopencv-dev python3-opencv
 apt-get install libgl1-mesa-glx
