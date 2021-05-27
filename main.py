@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi import File
 from fastapi import UploadFile
 from pydantic import BaseModel
-#import cv2 # opencv
+import cv2 # opencv
 import numpy as np
 
 from PIL import Image
