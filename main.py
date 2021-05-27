@@ -4,10 +4,9 @@ from fastapi import File
 from fastapi import UploadFile
 from pydantic import BaseModel
 import numpy as np
+import cv2
 
-from DetectionTension import detecterTension
-
-from PIL import Image
+from DetectionTension import detecterTensions
 
 app = FastAPI()
 
@@ -15,9 +14,12 @@ app = FastAPI()
 async def read_root():
     return {"message": "Welcome from the API"}
 
+
 @app.post("/get")
 async def get_pa(file: UploadFile = File(...)): # get pression artérielle
-    image = np.array(Image.open(file.file))
+    contents = await file.read()
+    nparr = np.fromstring(contents, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     width, height, _ = image.shape
-    PA = detecterTension(image)
-    return {"PAS":PA[0],"PAD":PA[1]}
+    PAS, PAD = detecterTensions(image)
+    return {"PAS":PAS,"PAD":PAD}

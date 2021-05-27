@@ -1,7 +1,11 @@
 import cv2
 import numpy as np
 
-def detecterTension(image):
+def detecterTensions(image):
+    _, PAS, PAD = detecterTensionsDebug(image)
+    return PAS, PAD
+
+def detecterTensionsDebug(image):
     
     detecteurTension = DetecteurTension(400)
     
@@ -15,9 +19,9 @@ def detecterTension(image):
     
     detecteurTension.setImage(image)
     detecteurTension.setParametres(alpha, blurAmount, threshold, adjustment, erode, iterations)
-    PAS, PAD = detecteurTension.detecterTensions()
+    _, PAS, PAD = detecteurTension.detecterTensions()
     
-    return (PAS,PAD)
+    return (_,PAS,PAD)
 
 class DetecteurTension:
     def __init__(self, height):
@@ -477,6 +481,8 @@ class DetecteurTension:
         w = self.resized.shape[1]
         h = self.height
         
+        print(self.resized.shape)
+        
         while(iterations < 3):
             imgs, PAS, PAD = self.detecterTensionDansZone(iterations)
             for img in imgs:
@@ -540,4 +546,4 @@ class DetecteurTension:
             iterations += 1
                
         
-        return PAS, PAD
+        return imagesDebug, PAS, PAD
