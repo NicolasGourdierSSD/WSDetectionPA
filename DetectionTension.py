@@ -1,13 +1,18 @@
 import cv2
 import numpy as np
 
+# PAS = Pression Artérielle Systolique
+# PAD = Pression Artérielle Diastolique
+
+# Retourne la PAS et la PAD détectées sur une image d'un appareil de mesure de tension artérielle
 def detecterTensions(image):
     _, PAS, PAD = detecterTensionsDebug(image)
     return PAS, PAD
 
+# Retourne la PAS et la PAD détectées sur une image d'un appareil de mesure de tension
+# Retourne également une liste d'image qui correspond aux différentes étapes intermédiaires de calcul
 def detecterTensionsDebug(image):
-    
-    detecteurTension = DetecteurTension(400)
+    detecteurTension = DetecteurTension(400) # l'image traitée sera réduite à une image de 400 pixels de haut
     
     # variables relatives au traitement d'image
     alpha = 1.0
@@ -23,16 +28,19 @@ def detecterTensionsDebug(image):
     
     return (_,PAS,PAD)
 
+# Classe qui gère la détection de tensions dans une images
 class DetecteurTension:
     def __init__(self, height):
         self.height = height
         self.width = 0
-        self.original = None
-        self.R = []
+        self.original = None # image originale
+        self.R = [] # ratios (largeur/hauteur) des images aux différentes étapes de traitement lors des recadrages
         self.xR = []
         self.yR = []
+        self.inversee = False
     
-    # redimensionne une image à une hauteur choisi, retourne l'image et largeur retourne -1 si la hauteur ne permet pas de resize
+    # redimensionne une image à une hauteur choisi
+    # retourne l'image et largeur retourne -1 si la hauteur ne permet pas de redimensionner
     def resize_to_height(self, img, height):
         r = img.shape[0] / float(height)
         if img.shape[0] > 0 and img.shape[1] > 0:
@@ -82,6 +90,7 @@ class DetecteurTension:
     def thresh(self, img, threshold, adjustment):
         return cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, threshold, adjustment)
 
+    # "errode" une image
     def errode(self, img, erode, iterations):
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (erode,erode))
         eroded = cv2.erode(img, kernel, iterations = iterations)
@@ -102,16 +111,16 @@ class DetecteurTension:
         
         return inversee
     
-    # prend une image seuillee en noir et blanc et ne garde que les forment dont le contour
+    # prend une image seuillee en noir et blanc et ne garde que les formes dont le contour
     # ressemble à peu près aux dimensions de chiffres.
-    # * retourne l'image originale avec tout les contours détectés
+    # * retourne l'image traitées avec tout les contours détectés
     # * retourne l'image avec uniquement les contours de chiffres selectionnes
+    # TODO : resize avec le x et y min et max des contours gardés + quelques(5?) pixels de marge
     def selectionnerContourChiffres(self, img):
         # detection de contours
         contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # get contours
         contoursNombres = []
         
-        # TODO : PRENDRE LE X, Y min et max prendre quelques pixels de plus de toutes les côtés et resize?
         
         # transformer une image avec un seuil canal en image rgb (mais en noir et blanc)
         hImage,wImage = img.shape
@@ -127,38 +136,40 @@ class DetecteurTension:
                 [x, y, w, h] = cv2.boundingRect(contour)
                 aspect = float(w) / h
                 size = w * h
+                imgContour = img[y:y+h, x:x+w]
+                h,w = imgContour.shape
+                nbPixBlancs = np.sum(imgContour==255)
+                propPixBlanc = nbPixBlancs/(h*w) # proportion de pixel blancs sur le contour en cours de traitement
                 
-                # dessiner sur l'image noir et blanc les contours (même si on ne les garde pas pour avoir une idée 
-                # de tous les contours détectes à l'origine)
+                # dessiner sur l'image en noir et blanc les contours (même si on ne les garde, on peut avoir 
+                # une idée de tous les contours détectes à l'origine)
                 cv2.rectangle(imgCP, (x, y), (x + w, y + h), (0, 0, 255), 2)
                 
-                #enlever les contours trop grands
+                # enlever les contours trop grands
                 if(size > (wImage*hImage)/8):
                     continue
                 
-                #sauter les contours pas assez remplis
-                imgContour = img[y:y+h, x:x+w]
-                h,w = imgContour.shape
-                nbWhite = np.sum(imgContour==255)
-                if(nbWhite/(h*w)<0.2):
+                # enlever les contours trop petits :
+                if(size < (hImage*wImage)/300):
+                    #print("contourTropPetit : " + str(size) + " vs : " + str((hImage*wImage)/350))
+                    continue
+                                
+                # enlever les contours pas assez remplis
+                if(propPixBlanc<0.2):
                     continue
                 
-                if(nbWhite/(h*w)<0.5) and aspect >4:
+                if(propPixBlanc<0.5) and aspect >3 and size > (hImage*wImage)/20:
                     continue
                 
-                #enlever les contours qui font plus de la moitié de la hauteur de l'image
+                # enlever les contours qui font plus de la moitié de la hauteur de l'image
                 if h>hImage/2:
                     continue
                 
-                #enlever les contours trop longs
+                # enlever les contours trop longs
                 if aspect < 0.1:
                     continue
                 
-                #enlever les contours trop petits :
-                if(size < (hImage*wImage)/350):
-                    continue
-                
-                #enlever les contours carres trop petits (par exemple les coeurs)
+                # enlever les contours carres trop petits (par exemple les coeurs)
                 if(aspect < 1.3 and aspect > 0.7 and size < (wImage*hImage)/100):
                     continue
                 
@@ -249,7 +260,7 @@ class DetecteurTension:
 
                 cv2.rectangle(imgCP, (x + int(w/2) - 2, y + int(h/2) - 2), (x + int(w/2) + 2, y + int(h/2) + 2), (255,0,0), 2)
                 
-                if aspect < 0.5: #un 1
+                if aspect < 0.4: #un 1
                     chiffres.append(["1",x+w/2,y+h/2])
                 else: #trouver quel chiffre c'est selon les 7 segments voir schema au dessus pour les lettres des segments
                     cropped = img[y:y+h, x:x+w]
@@ -544,6 +555,13 @@ class DetecteurTension:
                 
                       
             iterations += 1
-               
+        
+        # si rien de détecté on tente d'inverser les couleurs   
+        if(PAD == 0 and self.inversee == False):
+            self.inversee = True
+            imagesDebug.clear()
+            self.original = self.inverse_colors(self.original)
+            imagesDebug, PAS, PAD = self.detecterTensions()
+            
         
         return imagesDebug, PAS, PAD
