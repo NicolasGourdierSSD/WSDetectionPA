@@ -34,9 +34,9 @@ class DetecteurTension:
         self.height = height
         self.width = 0
         self.original = None # image originale
-        self.R = [] # ratios (largeur/hauteur) des images aux différentes étapes de traitement lors des recadrages
-        self.xR = []
-        self.yR = []
+        self.R = 1 # ratios (largeur/hauteur) des images aux différentes étapes de traitement lors des recadrages
+        self.xR = 0 # décallage en x utilisé lors des recadrages
+        self.yR = 0  # décallage en y utilisé lors des recadrages
         self.inversee = False
     
     # redimensionne une image à une hauteur choisi
@@ -53,11 +53,11 @@ class DetecteurTension:
     # définir l'image dans laquelle on va chercher les chiffres de tension
     def setImage(self, image):
         self.original = image
-        self.R.clear()
-        self.xR.clear()
-        self.yR.clear()
+        self.R = 1
+        self.xR = 0
+        self.yR = 0
         self.resized, self.width = self.resize_to_height(self.original, self.height)
-        self.R.append(self.original.shape[0] / self.resized.shape[0])
+        self.R = (self.original.shape[0] / self.resized.shape[0]) # hOrigine / height
         
     # défini les paramètres commme le niveau de flou pour le traitement de la photo
     def setParametres(self, alpha, blurAmount, threshold, adjustment, erode, iterations):
@@ -178,18 +178,52 @@ class DetecteurTension:
             # garder dans l'image originale uniqumement les zones qui correspondent aux 
             # contours qu'on à gardé
             mask = np.zeros((hImage,wImage,1), np.uint8)
+            
+            # x et y min et max pour resize autour des contours
+            xMin = wImage
+            yMin = hImage
+            xMax = 0
+            yMax = 0
+            
+            
+        if(len(contoursNombres) > 0):
+            # sélectionner les contours de chiffre dans l'image grâce à un mask
             for contour in contoursNombres:
                 [x, y, w, h] = cv2.boundingRect(contour) 
                 cv2.rectangle(mask, (x, y), (x+ w, y + h), (255), -1)
+                
+                if x < xMin:
+                    xMin = x
+                if y < yMin:
+                    yMin = y
+                if x+w > xMax:
+                    xMax = x+w
+                if y+h > yMax:
+                    yMax = y+h
             
             masked = cv2.bitwise_and(img, img, mask = mask)
-            # copymasked = np.zeros((self.height,self.width,3), np.uint8)
-            # copymasked[:,:,0] = masked[:,:,0]
-            # copymasked[:,:,1] = masked[:,:,0]
-            # copymasked[:,:,2] = masked[:,:,0]
+        
+            # recadrer avec les x et y min et max avant d'eroder
+            # prendre 5 pix de marge
+            xMin -= 5
+            yMin -= 5
+            xMax += 5
+            yMax += 5
+            if xMin < 0:
+                xMin = 0
+            if yMin < 0:
+                yMin = 0
+            if xMax > wImage:
+                xMax = wImage
+            if yMax > hImage:
+                yMax = hImage
+                
+            print("xMin: " + str(xMin) + " yMin: " + str(yMin) + " xMax: " + str(xMax) + " yMax: " + str(yMax))
+            imgRecadre = masked[yMin:yMax, xMin:xMax]
+            imgResized, _ = self.resize_to_height(imgRecadre, self.height)
         
             # eroder pour que les segments d'un chiffres se colent et forment une seule forme
-            erodee = self.inverse_colors(self.errode(self.inverse_colors(masked), self.erode, self.iterations))
+            erodee = self.inverse_colors(self.errode(self.inverse_colors(imgResized), self.erode, self.iterations))
             return imgCP, erodee
         else:
             return imgCP, np.zeros((hImage,wImage), np.uint8)
@@ -260,7 +294,7 @@ class DetecteurTension:
 
                 cv2.rectangle(imgCP, (x + int(w/2) - 2, y + int(h/2) - 2), (x + int(w/2) + 2, y + int(h/2) + 2), (255,0,0), 2)
                 
-                if aspect < 0.4: #un 1
+                if aspect < 0.4: # TODO : VERIFIER RATIO pour qu'un chiffre soit un 1
                     chiffres.append(["1",x+w/2,y+h/2])
                 else: #trouver quel chiffre c'est selon les 7 segments voir schema au dessus pour les lettres des segments
                     cropped = img[y:y+h, x:x+w]
@@ -401,7 +435,33 @@ class DetecteurTension:
         # detection de contours
         contours, _ = cv2.findContours(traitee, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # get contours
         
-        [xF, yF, wF, hF] = [0,0,0,0]
+        # [xF, yF, wF, hF] = [0,0,0,0] # plus gros contour
+        # [xF2, yF2, wF2, hF2] = [-1,-1,-1,-1] # deuxième plus gros contour
+        
+        # if len(contours) > 0:
+        #     [xF, yF, wF, hF] = cv2.boundingRect(contours[0])
+        #     for contour in contours:
+        #         [x, y, w, h] = cv2.boundingRect(contour)
+        #         aspect = float(w) / h
+        #         size = w * h
+        #         if size > 0.95 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
+        #             continue
+        #         if(size > wF * hF):
+        #             [xF2, yF2, wF2, hF2] = [xF, yF, wF, hF]
+        #             [xF, yF, wF, hF] = cv2.boundingRect(contour)
+        #         elif (size > wF2 * hF2):
+        #             [xF2, yF2, wF2, hF2] = cv2.boundingRect(contour)
+                    
+        #     x = xF if xF < xF2 else xF2
+        #     y = yF if yF < yF2 else yF2
+        #     w = (xF + wF - x) if (xF + wF) > (xF2 + wF2) else (xF2 + wF2 - x)
+        #     h = (yF + hF - y) if (yF + hF) > (yF2 + hF2) else (yF2 + hF2 - y)
+        #     return x, y, w, h
+        # else:
+        #     return -1, -1, -1, -1
+        
+        [xF, yF, wF, hF] = [0,0,0,0] # plus gros contour en largueur
+        [xF2, yF2, wF2, hF2] = [0,0,0,0] # plus contour en hauteur
         
         if len(contours) > 0:
             [xF, yF, wF, hF] = cv2.boundingRect(contours[0])
@@ -409,11 +469,24 @@ class DetecteurTension:
                 [x, y, w, h] = cv2.boundingRect(contour)
                 aspect = float(w) / h
                 size = w * h
-                if size > 0.95 * hImage * wImage :#? vérifier le 0.95 (Suppprimer les contours si ils font une rop grosse partie de l'image)
+                if size > 0.95 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
                     continue
-                if(size > wF * hF):
+                if(w > wF):
                     [xF, yF, wF, hF] = cv2.boundingRect(contour)
-            return xF, yF, wF, hF
+                if (h > hF2):
+                    [xF2, yF2, wF2, hF2] = cv2.boundingRect(contour)
+                    
+            x = xF if xF < xF2 else xF2
+            y = yF if yF < yF2 else yF2
+            w = (xF + wF - x) if (xF + wF) > (xF2 + wF2) else (xF2 + wF2 - x)
+            h = (yF + hF - y) if (yF + hF) > (yF2 + hF2) else (yF2 + hF2 - y)
+            
+            if w * h < 0.95 * hImage * wImage:
+                return x, y, w, h
+            elif wF * hF > wF2 * hF2:
+                return xF, yF, wF, hF
+            else:
+                return xF2, yF2, wF2, hF2
         else:
             return -1, -1, -1, -1
     
@@ -492,9 +565,7 @@ class DetecteurTension:
         w = self.resized.shape[1]
         h = self.height
         
-        print(self.resized.shape)
-        
-        while(iterations < 3):
+        while(iterations < 5): # ? nombre d'itérations à vérifier
             imgs, PAS, PAD = self.detecterTensionDansZone(iterations)
             for img in imgs:
                 imagesDebug.append(img)
@@ -506,54 +577,21 @@ class DetecteurTension:
             if(x == -1):
                 break;  
             
+            xM = int(x * self.R + self.xR)
+            yM = int(y * self.R + self.yR)
+            wM = int(w * self.R)
+            hM = int(h * self.R)
+                        
+            cropped = self.original[yM:yM+hM, xM:xM+wM]
+            self.resized, c = self.resize_to_height(cropped, self.height)
+                        
+            if (c == -1):
+                break;
             
-            # hOrigine,wOrigine,_ = self.original.shape
-            # hImage,wImage,_ = self.resized.shape
-            # xM = int((x*wOrigine)/wImage)
-            # yM = int((y*hOrigine)/hImage)
-            # wM = int((w*wOrigine)/wImage)
-            # hM = int((h*hOrigine)/hImage)
-            if iterations == 0 :
-                xM = int(x*self.R[0])
-                yM = int(y*self.R[0])
-                wM = int(w*self.R[0])
-                hM = int(h*self.R[0])
-                
-                cropped = self.original[yM:yM+hM, xM:xM+wM]
-                self.resized, _ = self.resize_to_height(cropped, self.height)
-                
-                self.xR.append(x)
-                self.yR.append(y)
-                self.R.append(h/self.height)
-            elif iterations == 1: #! TEMP
-                
-                xM = int(((x*self.R[1]) + self.xR[0])*self.R[0])
-                yM = int(((y*self.R[1]) + self.yR[0])*self.R[0])
-                wM = int((w*self.R[1])*self.R[0])
-                hM = int((h*self.R[1])*self.R[0])
-                
-                print(str(x) + " " + 
-                      str(y) + " " + 
-                      str(self.R[1]) + " " +
-                      str(self.xR[0]) + " " + 
-                      str(self.yR[0]) + " " + 
-                      str(self.R[0]))
-                
-                print(str(xM) + " " +
-                      str(yM) + " " +
-                      str(wM) + " " +
-                      str(hM))
-                cropped = self.original[yM:yM+hM, xM:xM+wM]
-                self.resized, c = self.resize_to_height(cropped, self.height)
-                
-                if c == -1:
-                    break;
-                
-                self.xR.append(xM)
-                self.yR.append(yM)
-                self.R.append(h/self.height)
-                
-                      
+            self.xR = xM
+            self.yR = yM
+            self.R = self.R * (h / self.height)
+
             iterations += 1
         
         # si rien de détecté on tente d'inverser les couleurs   
