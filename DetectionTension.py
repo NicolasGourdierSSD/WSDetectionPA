@@ -11,15 +11,14 @@ def detecterTensions(image):
 
 # Retourne la PAS et la PAD détectées sur une image d'un appareil de mesure de tension
 # Retourne également une liste d'image qui correspond aux différentes étapes intermédiaires de calcul
-def detecterTensionsDebug(image):
+def detecterTensionsDebug(image, inv=0): 
     detecteurTension = DetecteurTension(400) # l'image traitée sera réduite à une image de 400 pixels de haut
-    
     # variables relatives au traitement d'image
     alpha = 1.0
     blurAmount = 3
     threshold = 83
     adjustment = 11
-    erode = 4
+    erode = 3
     iterations = 3
     
     detecteurTension.setImage(image)
@@ -115,12 +114,12 @@ class DetecteurTension:
     # ressemble à peu près aux dimensions de chiffres.
     # * retourne l'image traitées avec tout les contours détectés
     # * retourne l'image avec uniquement les contours de chiffres selectionnes
-    # TODO : resize avec le x et y min et max des contours gardés + quelques(5?) pixels de marge
     def selectionnerContourChiffres(self, img):
         # detection de contours
         contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # get contours
         contoursNombres = []
         
+        #TODO : Si on trouve pas tester en errodant moins?
         
         # transformer une image avec un seuil canal en image rgb (mais en noir et blanc)
         hImage,wImage = img.shape
@@ -150,7 +149,7 @@ class DetecteurTension:
                     continue
                 
                 # enlever les contours trop petits :
-                if(size < (hImage*wImage)/300):
+                if(size < (hImage*wImage)/800): # ! prev 300 ... Vérifier le ratio aussi?
                     #print("contourTropPetit : " + str(size) + " vs : " + str((hImage*wImage)/350))
                     continue
                                 
@@ -159,6 +158,10 @@ class DetecteurTension:
                     continue
                 
                 if(propPixBlanc<0.5) and aspect >3 and size > (hImage*wImage)/20:
+                    continue
+                
+                # enlever les contours qui font plus de la moitié de la largeur de l'image
+                if(w > 0.5*wImage):
                     continue
                 
                 # enlever les contours qui font plus de la moitié de la hauteur de l'image
@@ -286,8 +289,8 @@ class DetecteurTension:
                 aspect = float(w) / h
                 size = w * h
                 
-                #si size < 1/50 de la taille totale, c'est pas un nombre de
-                if size < (hImage*wImage)/60:
+                #si la taille est trop petite c'est pas un nombre
+                if size < (hImage*wImage)/80:
                     continue
                 
                 cv2.rectangle(imgCP, (x, y), (x + w, y + h), (0, 0, 255), 2)
@@ -427,7 +430,7 @@ class DetecteurTension:
     # detecte les contours dans une zone de l'image image et renvoie les coord x, y et la les dimensions w, h
     def plusGrosContour(self, img):
         
-        # TODO : prendre un mix des deux plus gros contour? (image 15)
+        # TODO : Améliorer
         hImage,wImage,_ = img.shape
         
         traitee = self.traitement1(img)
@@ -435,30 +438,22 @@ class DetecteurTension:
         # detection de contours
         contours, _ = cv2.findContours(traitee, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # get contours
         
-        # [xF, yF, wF, hF] = [0,0,0,0] # plus gros contour
-        # [xF2, yF2, wF2, hF2] = [-1,-1,-1,-1] # deuxième plus gros contour
+        # Premiere méthode, on prend le plus gros contour si il est supérieur à la moitié de l'écran
+        [xF, yF, wF, hF] = [0,0,0,0] # plus gros contour
         
-        # if len(contours) > 0:
-        #     [xF, yF, wF, hF] = cv2.boundingRect(contours[0])
-        #     for contour in contours:
-        #         [x, y, w, h] = cv2.boundingRect(contour)
-        #         aspect = float(w) / h
-        #         size = w * h
-        #         if size > 0.95 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
-        #             continue
-        #         if(size > wF * hF):
-        #             [xF2, yF2, wF2, hF2] = [xF, yF, wF, hF]
-        #             [xF, yF, wF, hF] = cv2.boundingRect(contour)
-        #         elif (size > wF2 * hF2):
-        #             [xF2, yF2, wF2, hF2] = cv2.boundingRect(contour)
-                    
-        #     x = xF if xF < xF2 else xF2
-        #     y = yF if yF < yF2 else yF2
-        #     w = (xF + wF - x) if (xF + wF) > (xF2 + wF2) else (xF2 + wF2 - x)
-        #     h = (yF + hF - y) if (yF + hF) > (yF2 + hF2) else (yF2 + hF2 - y)
-        #     return x, y, w, h
-        # else:
-        #     return -1, -1, -1, -1
+        if len(contours) > 0:
+            [xF, yF, wF, hF] = cv2.boundingRect(contours[0])
+            for contour in contours:
+                [x, y, w, h] = cv2.boundingRect(contour)
+                aspect = float(w) / h
+                size = w * h
+                if size > 0.95 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
+                    continue
+                if(size > wF * hF):
+                    [xF, yF, wF, hF] = cv2.boundingRect(contour)
+        if(wF*hF > 0.5*hImage*wImage): #si le contour fait plus de la moitié de l'image on le garde, sinon on essaye la seconde méthode
+            return xF, yF, wF, hF
+
         
         [xF, yF, wF, hF] = [0,0,0,0] # plus gros contour en largueur
         [xF2, yF2, wF2, hF2] = [0,0,0,0] # plus contour en hauteur
@@ -481,14 +476,16 @@ class DetecteurTension:
             w = (xF + wF - x) if (xF + wF) > (xF2 + wF2) else (xF2 + wF2 - x)
             h = (yF + hF - y) if (yF + hF) > (yF2 + hF2) else (yF2 + hF2 - y)
             
-            if w * h < 0.95 * hImage * wImage:
+            if w * h < 0.95 * hImage * wImage and w * h > 0.3 * hImage * wImage: # TODO verifier le 0.3
                 return x, y, w, h
-            elif wF * hF > wF2 * hF2:
-                return xF, yF, wF, hF
-            else:
-                return xF2, yF2, wF2, hF2
-        else:
-            return -1, -1, -1, -1
+            # elif wF * hF > wF2 * hF2:
+            #     return xF, yF, wF, hF
+            # else:
+            #     return xF2, yF2, wF2, hF2
+        
+        #else    
+        # TODO : CHECK SI L'IMAGE EST TOUTE NOIRE
+        return int(0.2*wImage),int(0.2*hImage),int(0.6*wImage),int(0.6*hImage)
     
     # cherche la tension sys et dias dans une zone spécifique de l'écran
     # * retourne la PAS et la PAD si elle sont trouvees
@@ -496,9 +493,7 @@ class DetecteurTension:
     def detecterTensionDansZone(self, indice):
         # deux cas a gérer : écritures noires et écritures blanches
         # dans un cas il faut faire une inversion des couleurs au debut, dans l'autre cas non
-        
-        # ! Pour l'instant on gère que les écritures noires.
-        
+                
         imagesDebug = []
         PAS = 0
         PAD = 0
@@ -520,12 +515,14 @@ class DetecteurTension:
         # - il y a plus de 3 nombres, c'est trop, on renvoie 0
         nbNombres = len(nombres)
         if(nbNombres == 2):
-            if(nombres[0] > nombres[1]):
-                PAS = nombres[0][0]
-                PAD = nombres[1][0]
+            nombreHaut = nombres[0] if nombres[0][1] < nombres[1][1] else nombres[1]
+            nombreBas = nombres[1] if nombres[0][1] < nombres[1][1] else nombres[0]
+            if(nombreHaut < nombreBas): # pas bon
+                PAS = 0
+                PAD = 0
             else:
-                PAS = nombres[1][0]
-                PAD = nombres[0][0]
+                PAS = nombreHaut[0]
+                PAD = nombreBas[0]
         elif(nbNombres == 3):
             maxY = nombres[0]
             for nombre in nombres:
@@ -541,6 +538,16 @@ class DetecteurTension:
         else:
             print(nombres)
         
+        
+        if(PAS==0 and PAD==0):
+            if(self.iterations == 3 and self.erode == 3):
+                self.iterations = 3
+                self.erode = 4
+                imagesDebug.clear()
+                imagesDebug, PAS, PAD = self.detecterTensionDansZone(indice)
+            
+        self.iterations = 3
+        self.erode = 3        
         return imagesDebug, PAS, PAD
     
     # détecte la PAS et la PAD dans une image
@@ -553,7 +560,7 @@ class DetecteurTension:
         
         # cherche PAS et PAD dans l'image entière, si ça ne fonctionne pas, prendre
         # la zone la plus importante de l'image (selon la détection de contour)
-        # et relancer la recherche (faire ça 3 fois ?)
+        # et relancer la recherche
         
         PAS = 0
         PAD = 0
@@ -569,23 +576,23 @@ class DetecteurTension:
             imgs, PAS, PAD = self.detecterTensionDansZone(iterations)
             for img in imgs:
                 imagesDebug.append(img)
-            if PAS != 0 and PAD != 0:
+            if PAS != 0 and PAD != 0: # si PAS et PAD != 0 une tension a été trouve donc on ne relance pas la recherche
                 break;
             
-            x, y, w, h = self.plusGrosContour(self.resized)
+            x, y, w, h = self.plusGrosContour(self.resized) # prendre la zone la plus importante de l'image puis relancer la détection
             
             if(x == -1):
                 break;  
             
+            # redimensionner l'image depuis l'image d'origine pour prendre la meilleure résolution possible
             xM = int(x * self.R + self.xR)
             yM = int(y * self.R + self.yR)
             wM = int(w * self.R)
-            hM = int(h * self.R)
-                        
+            hM = int(h * self.R)     
             cropped = self.original[yM:yM+hM, xM:xM+wM]
             self.resized, c = self.resize_to_height(cropped, self.height)
-                        
-            if (c == -1):
+            
+            if (c == -1): # si c = 1 la zone de l'image séléctionnée dans l'image est trop petite
                 break;
             
             self.xR = xM
@@ -595,7 +602,7 @@ class DetecteurTension:
             iterations += 1
         
         # si rien de détecté on tente d'inverser les couleurs   
-        if(PAD == 0 and self.inversee == False):
+        if(PAD == 0 and self.inversee == False): # ! TEMP ENLEVER COMMENTAIRES
             self.inversee = True
             imagesDebug.clear()
             self.original = self.inverse_colors(self.original)
