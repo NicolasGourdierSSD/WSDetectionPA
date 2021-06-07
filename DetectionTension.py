@@ -16,15 +16,14 @@ def detecterTensionsDebug(image, inv=0):
     # variables relatives au traitement d'image
     alpha = 1.0
     blurAmount = 3
-    threshold = 83
-    adjustment = 11
-    erode = 3
+    threshold = 59 # old 83
+    adjustment = 11 #old 11
+    erode = 3 # old 4
     iterations = 3
     
     detecteurTension.setImage(image)
     detecteurTension.setParametres(alpha, blurAmount, threshold, adjustment, erode, iterations)
     _, PAS, PAD = detecteurTension.detecterTensions()
-    
     return (_,PAS,PAD)
 
 # Classe qui gère la détection de tensions dans une images
@@ -118,9 +117,7 @@ class DetecteurTension:
         # detection de contours
         contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # get contours
         contoursNombres = []
-        
-        #TODO : Si on trouve pas tester en errodant moins?
-        
+                
         # transformer une image avec un seuil canal en image rgb (mais en noir et blanc)
         hImage,wImage = img.shape
         imgCP = np.zeros((hImage,wImage,3), np.uint8)
@@ -131,6 +128,14 @@ class DetecteurTension:
         if len(contours) > 0:
             # on supprime tout les contours dont les dimensions ne ressemblent pas à celles d'un chiffres
             # comme par exemple les contours trop grands ou trop petits, trop vides, trop longs...
+            maxSize = 0
+            for contour in contours:
+                [x, y, w, h] = cv2.boundingRect(contour)
+                aspect = float(w) / h
+                size = w*h
+                if size > maxSize and h<0.55*hImage and w<0.55*wImage and aspect < 1.8 and aspect>0.55:
+                    maxSize = size
+            
             for contour in contours:
                 [x, y, w, h] = cv2.boundingRect(contour)
                 aspect = float(w) / h
@@ -143,6 +148,9 @@ class DetecteurTension:
                 # dessiner sur l'image en noir et blanc les contours (même si on ne les garde, on peut avoir 
                 # une idée de tous les contours détectes à l'origine)
                 cv2.rectangle(imgCP, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                
+                if size < 0.3 * maxSize and aspect < 1.8 and aspect > 0.55:
+                    continue
                 
                 # enlever les contours trop grands
                 if(size > (wImage*hImage)/8):
@@ -157,7 +165,7 @@ class DetecteurTension:
                 if(propPixBlanc<0.2):
                     continue
                 
-                if(propPixBlanc<0.5) and aspect >3 and size > (hImage*wImage)/20:
+                if(propPixBlanc<0.6) and aspect >3 :#and size > (hImage*wImage)/20: #old prop : 0.5
                     continue
                 
                 # enlever les contours qui font plus de la moitié de la largeur de l'image
@@ -168,13 +176,26 @@ class DetecteurTension:
                 if h>hImage/2:
                     continue
                 
+                if aspect < 0.6 and propPixBlanc < 0.6 and h < self.width/10:
+                    continue
+                
                 # enlever les contours trop longs
                 if aspect < 0.1:
                     continue
+                if aspect > 10:
+                    continue
+                
+                #enlever les trop petits/carrés
+                # old 40 40
+                if h < 30 and w < 30 and aspect < 1.8 and aspect > 0.55:# and propPixBlanc > 0.4: #old 0.6
+                    continue
+                    
+                if w < 25 and h < 11:
+                    continue
                 
                 # enlever les contours carres trop petits (par exemple les coeurs)
-                if(aspect < 1.3 and aspect > 0.7 and size < (wImage*hImage)/100):
-                    continue
+                # if(aspect < 1.3 and aspect > 0.7 and size < (wImage*hImage)/100):
+                #     continue
                 
                 contoursNombres.append(contour)
         
@@ -221,12 +242,38 @@ class DetecteurTension:
             if yMax > hImage:
                 yMax = hImage
                 
-            print("xMin: " + str(xMin) + " yMin: " + str(yMin) + " xMax: " + str(xMax) + " yMax: " + str(yMax))
+            # print("xMin: " + str(xMin) + " yMin: " + str(yMin) + " xMax: " + str(xMax) + " yMax: " + str(yMax))
             imgRecadre = masked[yMin:yMax, xMin:xMax]
             imgResized, _ = self.resize_to_height(imgRecadre, self.height)
         
-            # eroder pour que les segments d'un chiffres se colent et forment une seule forme
+            # regarder la taille des contours qu'on détecte, on choisira les variables errode et iterations en fonction
+            # si les contours sont grands, un errode et un iterations trop petit ne va faire rejoindre les differents segments d'un chiffre
+            # si les contours sont trop petits, un errode et un iterations trop grand risque de faire se rejoindre deux chiffres différents
             erodee = self.inverse_colors(self.errode(self.inverse_colors(imgResized), self.erode, self.iterations))
+            contours, _ = cv2.findContours(erodee, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # get contours
+            maxH = 0
+            
+            if(len(contours)>0):
+                for contour in contours:
+                    [x, y, w, h] = cv2.boundingRect(contour)
+                    if h>maxH and h<0.8*self.height:
+                        maxH = h
+                        
+            erode = 3
+            iterations = 3
+
+            if maxH > 0.4*self.height:
+                erode = 4
+                iterations = 4
+            elif maxH > 0.333*self.height:
+                erode = 4
+                iterations = 3
+            elif maxH < 0.25*self.height:
+                erode = 3
+                iterations = 2
+        
+            # eroder pour que les segments d'un chiffres se colent et forment une seule forme
+            erodee = self.inverse_colors(self.errode(self.inverse_colors(imgResized), erode, iterations))
             return imgCP, erodee
         else:
             return imgCP, np.zeros((hImage,wImage), np.uint8)
@@ -284,20 +331,51 @@ class DetecteurTension:
         if len(contours) > 0:
             # pour chaque contour déterminer le chiffre qui est dedans et le rajouter avec ces positions dans le tableau chiffres[]
             chiffres = []
+            hMoy = 0
+            nbCont = 0
+            for contour in contours:
+                [x, y, w, h] = cv2.boundingRect(contour)
+                aspect = float(w) / h
+                size = w * h
+                if size < (hImage*wImage)/100:
+                    continue
+                if aspect > 1:
+                    continue
+                nbCont+=1
+                hMoy += h
+                if h < 60:
+                    continue
+            if nbCont > 0:
+                hMoy = hMoy/nbCont
+            
             for contour in contours:
                 [x, y, w, h] = cv2.boundingRect(contour)
                 aspect = float(w) / h
                 size = w * h
                 
-                #si la taille est trop petite c'est pas un nombre
-                if size < (hImage*wImage)/80:
+                #retirer les contours qui ne sont pas des nombres
+                if size < (hImage*wImage)/100: # trop petit
+                    cv2.rectangle(imgCP, (x, y), (x + w, y + h), (255, 0, 0), 1)
                     continue
+                if aspect > 1: #largeur > hauteur
+                    cv2.rectangle(imgCP, (x, y), (x + w, y + h), (255, 0, 0), 1)
+                    continue
+                if h < 0.6 * hMoy or h > 1.6 * hMoy:
+                    cv2.rectangle(imgCP, (x, y), (x + w, y + h), (255, 0, 0), 1)
+                    continue
+                if aspect > 0.9:
+                    cv2.rectangle(imgCP, (x, y), (x + w, y + h), (255, 0, 0), 1)
+                    continue
+                if h>0.55*self.height:
+                    cv2.rectangle(imgCP, (x, y), (x + w, y + h), (255, 0, 0), 1)
+                    continue
+                
                 
                 cv2.rectangle(imgCP, (x, y), (x + w, y + h), (0, 0, 255), 2)
 
                 cv2.rectangle(imgCP, (x + int(w/2) - 2, y + int(h/2) - 2), (x + int(w/2) + 2, y + int(h/2) + 2), (255,0,0), 2)
                 
-                if aspect < 0.4: # TODO : VERIFIER RATIO pour qu'un chiffre soit un 1
+                if aspect < 0.4:
                     chiffres.append(["1",x+w/2,y+h/2])
                 else: #trouver quel chiffre c'est selon les 7 segments voir schema au dessus pour les lettres des segments
                     cropped = img[y:y+h, x:x+w]
@@ -310,6 +388,10 @@ class DetecteurTension:
                     zoneF = cropped[int(0.2*h):int(0.4*h), int(0):int(0.33*w)]
                     zoneG = cropped[int(0.4*h):int(0.6*h), int(0.375*w):int(0.625*w)]
                     
+                    #zones "1" : même avec un ration > 0.4 ça peut être un 1
+                    zone1A = cropped[int(0.2*h):int(0.4*h),int(0.33*w):int(0.66*w)]
+                    zone1B = cropped[int(0.4*h):int(0.6*h),int(0.33*w):int(0.66*w)]
+
                     # dessinner les zones sur l'image
                     cv2.rectangle(imgCP, (x + int(0.375*w), y), (x + int(0.625*w), y + int(0.2*h)), (0,255,0),3)
                     cv2.rectangle(imgCP, (x + int(0.66*w), y + int(0.2*h)), (x + int(w), y + int(0.4*h)), (0,255,0),3)
@@ -338,6 +420,12 @@ class DetecteurTension:
                             # print(0)
                             binSeg.append(0)
                         indice +=1
+                    
+                    h3,w3 = zone1A.shape
+                    zone1AProp = np.sum(zone1A==255)/(h3*w3)
+                    h3,w3 = zone1B.shape
+                    zone1BProp = np.sum(zone1B==255)/(h3*w3)
+                    
                     # print(binSeg)
                     outputNumbers = None
                     if(binSeg==DIGITS_LOOKUP[0]):
@@ -360,16 +448,34 @@ class DetecteurTension:
                         outputNumbers = "8 "
                     elif(binSeg==DIGITS_LOOKUP[9]):
                         outputNumbers = "9 "
+                    elif(zone1AProp>0.8 and zone1BProp> 0.8):
+                        outputNumbers = "1 "
                     if outputNumbers!=None:
                         chiffres.append([str(outputNumbers),x+w/2,y+h/2])
                 
             # * detecter quels chiffres appartiennent au même nombre
             # marge de hauteur pour que les chiffres soient considérés sur la même ligne
             # si la position du chiffre 1 est comprise entre la position du chiffre 2 + marge et la position du chiffre 2 - marge alors ils sont dans le même nombre
-            marge = hImage/16
+            margeH = hImage/16
+            margeW = 200 #wImage/3
             
-            # TODO : rajouter une marge de largeur, si deux chiffres sont trop éloignés en largeur alors ils ne sont pas dans le même nombre
+            #trier les chiffres de gauche à droite
+            chiffresCP = []
+            for chiffre in chiffres:
+                done = False
+                if len(chiffresCP)>0 and chiffre[1] < chiffresCP[0][1]:
+                    chiffresCP.insert(0, chiffre)
+                    done = True
+                if not done:
+                    for i in range(len(chiffresCP)-1):
+                        if chiffre[1] > chiffresCP[i][1] and chiffre[1] < chiffresCP[i+1][1]:
+                            chiffresCP.insert(i+1,chiffre)
+                            done = True
+                            break
+                if(not done):
+                    chiffresCP.append(chiffre)
             
+            chiffres = chiffresCP
             nombres = []
             indiceNombre = -1
             #print(len(chiffres))
@@ -385,7 +491,8 @@ class DetecteurTension:
                     for nombre in nombres:
                         indiceNombre +=1
                         # on compare les coord y du chiffre avec celles du premier chiffre d'un des nombres qu'on teste
-                        if chiffre[2] > nombre[0][2] - marge and chiffre[2] < nombre[0][2] + marge: #chiffre[2]  ->  coord y
+                        if (chiffre[2] > nombre[0][2] - margeH and chiffre[2] < nombre[0][2] + margeH and
+                            chiffre[1] > nombre[len(nombre)-1][1] - margeW and chiffre[1] < nombre[len(nombre)-1][1] + margeW): #chiffre[2]  ->  coord y
                             #même nombre
                             #print("append to : ")
                             #print(nombres[indiceNombre])
@@ -399,7 +506,6 @@ class DetecteurTension:
                         nouveauNombre.append(chiffre)
                         nombres.append(nouveauNombre)  
             #print(nombres)
-            
             # trier les chiffres d'un nombre de gauche à droite
             for nombre in nombres:
                 yMoyNombre = 0
@@ -429,8 +535,7 @@ class DetecteurTension:
     
     # detecte les contours dans une zone de l'image image et renvoie les coord x, y et la les dimensions w, h
     def plusGrosContour(self, img):
-        
-        # TODO : Améliorer
+        #dimensions de img
         hImage,wImage,_ = img.shape
         
         traitee = self.traitement1(img)
@@ -447,14 +552,38 @@ class DetecteurTension:
                 [x, y, w, h] = cv2.boundingRect(contour)
                 aspect = float(w) / h
                 size = w * h
-                if size > 0.95 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
+                if size > 0.90 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
                     continue
                 if(size > wF * hF):
                     [xF, yF, wF, hF] = cv2.boundingRect(contour)
-        if(wF*hF > 0.5*hImage*wImage): #si le contour fait plus de la moitié de l'image on le garde, sinon on essaye la seconde méthode
+        if(wF*hF > 0.25*hImage*wImage): #si le contour fait plus de la moitié de l'image on le garde, sinon on essaye la seconde méthode
             return xF, yF, wF, hF
 
+        # Deuxième méthode, on teste avec les couleurs inversées
+        # Marche mieux pour détecter les écran noirs sur des appareils blancs
+        inv = self.inverse_colors(img)
+        traiteeInv = self.traitement1(inv)
         
+        # detection de contours
+        contours, _ = cv2.findContours(traiteeInv, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # get contours
+        
+        # Premiere méthode, on prend le plus gros contour si il est supérieur à la moitié de l'écran
+        [xF, yF, wF, hF] = [0,0,0,0] # plus gros contour
+        
+        if len(contours) > 0:
+            [xF, yF, wF, hF] = cv2.boundingRect(contours[0])
+            for contour in contours:
+                [x, y, w, h] = cv2.boundingRect(contour)
+                aspect = float(w) / h
+                size = w * h
+                if size > 0.90 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
+                    continue
+                if(size > wF * hF):
+                    [xF, yF, wF, hF] = cv2.boundingRect(contour)
+        if(wF*hF > 0.25*hImage*wImage): #si le contour fait plus de la moitié de l'image on le garde, sinon on essaye la seconde méthode
+            return xF, yF, wF, hF
+        
+        # troisième méthode
         [xF, yF, wF, hF] = [0,0,0,0] # plus gros contour en largueur
         [xF2, yF2, wF2, hF2] = [0,0,0,0] # plus contour en hauteur
         
@@ -464,7 +593,7 @@ class DetecteurTension:
                 [x, y, w, h] = cv2.boundingRect(contour)
                 aspect = float(w) / h
                 size = w * h
-                if size > 0.95 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
+                if size > 0.90 * hImage * wImage :# Suppprimer les contours si ils font une trop grosse partie de l'image
                     continue
                 if(w > wF):
                     [xF, yF, wF, hF] = cv2.boundingRect(contour)
@@ -476,7 +605,7 @@ class DetecteurTension:
             w = (xF + wF - x) if (xF + wF) > (xF2 + wF2) else (xF2 + wF2 - x)
             h = (yF + hF - y) if (yF + hF) > (yF2 + hF2) else (yF2 + hF2 - y)
             
-            if w * h < 0.95 * hImage * wImage and w * h > 0.3 * hImage * wImage: # TODO verifier le 0.3
+            if w * h < 0.90 * hImage * wImage and w * h > 0.3 * hImage * wImage: # TODO verifier le 0.3
                 return x, y, w, h
             # elif wF * hF > wF2 * hF2:
             #     return xF, yF, wF, hF
@@ -484,16 +613,19 @@ class DetecteurTension:
             #     return xF2, yF2, wF2, hF2
         
         #else    
-        # TODO : CHECK SI L'IMAGE EST TOUTE NOIRE
-        return int(0.2*wImage),int(0.2*hImage),int(0.6*wImage),int(0.6*hImage)
+        
+        # par défaut renvoyer une zone coupée au centre de l'image
+        # marge horizontale : 0.05
+        # marge verticale : 0.15
+        return int(0.05*wImage),int(0.15*hImage),int(0.9*wImage),int(0.7*hImage)
     
     # cherche la tension sys et dias dans une zone spécifique de l'écran
+    # * cherche les tensions dans l'image self.resized
     # * retourne la PAS et la PAD si elle sont trouvees
     # * retourne les images de debug
     def detecterTensionDansZone(self, indice):
         # deux cas a gérer : écritures noires et écritures blanches
         # dans un cas il faut faire une inversion des couleurs au debut, dans l'autre cas non
-                
         imagesDebug = []
         PAS = 0
         PAD = 0
@@ -527,7 +659,7 @@ class DetecteurTension:
             maxY = nombres[0]
             for nombre in nombres:
                 if nombre[1] > maxY[1] : # nombre[1] est la coord en Y
-                    max = nombre
+                    maxY = nombre
             nombres.remove(maxY)
             if(nombres[0] > nombres[1]):
                 PAS = nombres[0][0]
@@ -535,19 +667,22 @@ class DetecteurTension:
             else:
                 PAS = nombres[1][0]
                 PAD = nombres[0][0]
-        else:
-            print(nombres)
         
-        
+        # si on ne trouve pas on réessaye avec un threshold différent
         if(PAS==0 and PAD==0):
-            if(self.iterations == 3 and self.erode == 3):
-                self.iterations = 3
-                self.erode = 4
+            if(self.threshold == 59 ):
+                self.threshold = 83
+                self.adjustment = 11
                 imagesDebug.clear()
                 imagesDebug, PAS, PAD = self.detecterTensionDansZone(indice)
-            
-        self.iterations = 3
-        self.erode = 3        
+            # if(self.threshold == 83):
+            #     self.threshold = 103
+            #     imagesDebug.clear()
+            #     imagesDebug, PAS, PAD = self.detecterTensionDansZone(indice)
+        
+        self.threshold = 59  
+        self.adjustment = 11
+
         return imagesDebug, PAS, PAD
     
     # détecte la PAS et la PAD dans une image
@@ -566,13 +701,13 @@ class DetecteurTension:
         PAD = 0
         
         iterations = 0
-        
+
         x = 0
         y = 0
         w = self.resized.shape[1]
         h = self.height
-        
-        while(iterations < 5): # ? nombre d'itérations à vérifier
+
+        while(iterations < 6): # ? nombre d'itérations à vérifier
             imgs, PAS, PAD = self.detecterTensionDansZone(iterations)
             for img in imgs:
                 imagesDebug.append(img)
@@ -588,7 +723,9 @@ class DetecteurTension:
             xM = int(x * self.R + self.xR)
             yM = int(y * self.R + self.yR)
             wM = int(w * self.R)
-            hM = int(h * self.R)     
+            hM = int(h * self.R)
+            if hM < 0.1*self.height or wM < 0.1*self.original.shape[1]: #trop petit
+                break
             cropped = self.original[yM:yM+hM, xM:xM+wM]
             self.resized, c = self.resize_to_height(cropped, self.height)
             
@@ -600,7 +737,7 @@ class DetecteurTension:
             self.R = self.R * (h / self.height)
 
             iterations += 1
-        
+
         # si rien de détecté on tente d'inverser les couleurs   
         if(PAD == 0 and self.inversee == False): # ! TEMP ENLEVER COMMENTAIRES
             self.inversee = True
