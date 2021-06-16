@@ -16,8 +16,10 @@ app = FastAPI()
 
 @app.get("/")
 async def read_root():
-    return {"/detecterPA": "Détecter la pression artérielle affichée sur un appareil de mesure de tension.",
-            "/scanDocument": "Recadrer une image d'un document papier."}
+    return {"/detecterTension": "Détecter la pression artérielle affichée sur un appareil de mesure de tension grâce à une photo.",
+            "/detecterTensionRecadre" : "Détecter la presson artérielle affichée sur un appareil de mesure de tension grâce à une photo recadrée. La photo recadrée comprend uniquement les chiffres de la tension, et non l'appareil entier."
+            "/scanDocument": "Recadrer une photo d'un document papier."
+            }
 
 
 @app.post("/detecterTension")
